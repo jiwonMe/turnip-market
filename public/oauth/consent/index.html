@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="ko">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
@@ -10,17 +10,31 @@
     input, button { font: inherit; padding: .7rem; margin: .4rem 0; }
     label, input { display: block; } button { cursor: pointer; }
     pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+    .tabs { display: flex; gap: .5rem; margin: .8rem 0; }
+    .tabs button { margin: 0; }
+    .tabs button[aria-selected="true"] { font-weight: 650; }
+    #google { width: 100%; font-weight: 650; padding: .85rem; margin: .2rem 0 0; }
+    .divider { text-align: center; color: GrayText; margin: 1.1rem 0 .4rem; }
+    #message { min-height: 1.4em; }
   </style>
 </head>
 <body>
   <h1>Authorize Cartridge</h1>
-  <p>Review the requesting application before granting access to your account.</p>
+  <p>앱이 계정에 접근하기 전에 로그인하거나 회원가입해 주세요.<br>Review the requesting application before granting access to your account.</p>
   <p id="message" role="status"></p>
-  <form id="login" hidden>
-    <label>Email <input id="email" type="email" autocomplete="username" required></label>
-    <label>Password <input id="password" type="password" autocomplete="current-password" required></label>
-    <button>Sign in</button>
-  </form>
+  <div id="auth" hidden>
+    <button type="button" id="google">Google로 계속하기</button>
+    <p class="divider">또는 이메일로 / or use email</p>
+    <form id="login">
+      <div class="tabs" role="tablist" aria-label="인증 방식">
+        <button type="button" id="mode-signin" role="tab" aria-selected="true">로그인</button>
+        <button type="button" id="mode-signup" role="tab" aria-selected="false">회원가입</button>
+      </div>
+      <label>이메일 / Email <input id="email" type="email" autocomplete="username" required></label>
+      <label>비밀번호 / Password <input id="password" type="password" autocomplete="current-password" required></label>
+      <button id="submit" type="submit">로그인</button>
+    </form>
+  </div>
   <section id="consent" hidden>
     <pre id="details"></pre>
     <button id="approve">Allow access</button> <button id="deny">Deny</button>
@@ -28,18 +42,59 @@
   <script type="module">
     import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.95.3';
     const message = document.querySelector('#message');
-    const login = document.querySelector('#login');
+    const authBox = document.querySelector('#auth');
     const consent = document.querySelector('#consent');
+    const passwordInput = document.querySelector('#password');
+    const submit = document.querySelector('#submit');
+    const signinTab = document.querySelector('#mode-signin');
+    const signupTab = document.querySelector('#mode-signup');
+    let mode = 'signin';
+    const showError = error => { message.textContent = error?.message || String(error); };
+    const callbackKeys = ['code', 'state', 'error', 'error_code', 'error_description'];
+    function consentRedirectUrl() {
+      const url = new URL(location.href);
+      url.hash = '';
+      for (const key of callbackKeys) url.searchParams.delete(key);
+      return url.toString();
+    }
+    function cleanCallbackParams() {
+      const url = new URL(location.href);
+      let changed = false;
+      for (const key of callbackKeys) {
+        if (url.searchParams.has(key)) { url.searchParams.delete(key); changed = true; }
+      }
+      if (changed) history.replaceState({}, '', url);
+    }
     try {
       const config = await (await fetch('./config.json')).json();
       if (!config.publishableKey) throw new Error('The operator must configure the public Supabase key.');
-      const db = createClient(config.supabaseUrl, config.publishableKey);
+      const db = createClient(config.supabaseUrl, config.publishableKey, {
+        auth: { flowType: 'pkce', detectSessionInUrl: false, persistSession: true, autoRefreshToken: true },
+      });
+      const params = new URL(location.href).searchParams;
+      if (params.get('error')) {
+        showError({ message: params.get('error_description') || params.get('error') });
+      } else if (params.get('code')) {
+        const { error } = await db.auth.exchangeCodeForSession(params.get('code'));
+        if (error) showError(error);
+      }
+      cleanCallbackParams();
       const id = new URL(location.href).searchParams.get('authorization_id');
       if (!id) throw new Error('Missing authorization_id. Start from your agent’s OAuth connection.');
-      const showError = error => { message.textContent = error.message; };
+      function setMode(next) {
+        mode = next;
+        const signup = next === 'signup';
+        signinTab.setAttribute('aria-selected', String(!signup));
+        signupTab.setAttribute('aria-selected', String(signup));
+        passwordInput.autocomplete = signup ? 'new-password' : 'current-password';
+        submit.textContent = signup ? '회원가입' : '로그인';
+      }
+      signinTab.onclick = () => setMode('signin');
+      signupTab.onclick = () => setMode('signup');
       async function load() {
         const { data: { user } } = await db.auth.getUser();
-        login.hidden = Boolean(user);
+        authBox.hidden = Boolean(user);
+        consent.hidden = true;
         if (!user) return;
         const { data, error } = await db.auth.oauth.getAuthorizationDetails(id);
         if (error) throw error;
@@ -47,10 +102,28 @@
         document.querySelector('#details').textContent = JSON.stringify({ application: data.client, account: data.user.email, scopes: data.scope, redirect: data.redirect_uri }, null, 2);
         consent.hidden = false;
       }
-      login.onsubmit = async event => {
+      document.querySelector('#google').onclick = async () => {
+        message.textContent = '';
+        const { error } = await db.auth.signInWithOAuth({
+          provider: 'google',
+          options: { redirectTo: consentRedirectUrl(), queryParams: { access_type: 'online', prompt: 'select_account' } },
+        });
+        if (error) showError(error);
+      };
+      document.querySelector('#login').onsubmit = async event => {
         event.preventDefault(); message.textContent = '';
-        const { error } = await db.auth.signInWithPassword({ email: document.querySelector('#email').value, password: document.querySelector('#password').value });
-        document.querySelector('#password').value = '';
+        const email = document.querySelector('#email').value;
+        const password = passwordInput.value;
+        if (mode === 'signup') {
+          const { data, error } = await db.auth.signUp({ email, password });
+          passwordInput.value = '';
+          if (error) { showError(error); return; }
+          if (data.session) { await load().catch(showError); return; }
+          message.textContent = '확인 메일을 보내 드렸습니다. 메일함(스팸함 포함)을 확인한 뒤 다시 로그인해 주세요. 메일이 오지 않으면 관리자에게 이메일 확인(email confirmation) 설정을 문의해 주세요. / Check your email to confirm the account, then sign in. If no email arrives, ask the operator whether confirmation is required.';
+          return;
+        }
+        const { error } = await db.auth.signInWithPassword({ email, password });
+        passwordInput.value = '';
         if (error) showError(error); else await load().catch(showError);
       };
       for (const action of ['approve', 'deny']) document.querySelector(`#${action}`).onclick = async () => {
