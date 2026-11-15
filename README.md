@@ -75,7 +75,7 @@ Otherwise: `UNDO_WINDOW_CLOSED` or `UNDO_PRICE_CHANGED`. Prefer advising users n
 ### Price model and secrecy
 
 - Weekly seed in `cartridge.market_week_secrets` (no grants to `authenticated`).
-- `market_price_for_slot(week, slot, mode)` is stable for tests; sell patterns vary by slot index.
+- `cartridge.market_price_for_slot(week, slot, mode)` is stable for tests; sell patterns vary by slot index. It is not granted to `anon` or `authenticated`; clients only see the current slot through `rpc_get_market`, buy/sell RPCs, and `current_market_sell_price()`.
 - `rpc_get_market` calls `market_advance_clock()` so time progresses on read.
 
 ### Cartridge fixes carried in this repo

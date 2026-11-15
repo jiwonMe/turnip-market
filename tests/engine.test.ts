@@ -11,7 +11,7 @@ test('engine: cartridge core, billing gate, undo', async () => {
       CREATE SCHEMA auth; CREATE TABLE auth.users(id uuid PRIMARY KEY);
       CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
       GRANT USAGE ON SCHEMA auth TO authenticated; GRANT EXECUTE ON FUNCTION auth.uid() TO authenticated;`);
-    for (const file of ['000_cartridge_engine.sql', '001_domain_turnip_market.sql', '002_polar_billing.sql']) {
+    for (const file of ['000_cartridge_engine.sql', '001_domain_turnip_market.sql', '002_polar_billing.sql', '003_view_security_invoker.sql', '005_executor_current_uid.sql', '006_revoke_future_price_access.sql']) {
       await db.exec(await readFile(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8'));
     }
     await db.exec(`INSERT INTO auth.users VALUES ('${alice}');

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { PGlite } from '@electric-sql/pglite';
 
-const MIGRATIONS = ['000_cartridge_engine.sql', '001_domain_turnip_market.sql', '002_polar_billing.sql'];
+const MIGRATIONS = ['000_cartridge_engine.sql', '001_domain_turnip_market.sql', '002_polar_billing.sql', '003_view_security_invoker.sql', '005_executor_current_uid.sql', '006_revoke_future_price_access.sql'];
 
 async function boot() {
   const db = new PGlite();
@@ -57,14 +57,31 @@ test('turnip: buy, sell, funds, rot, determinism, RLS, undo window', async () =>
     await db.exec(`RESET ROLE; SELECT set_config('request.jwt.claim.sub','${bob}',false); SET ROLE authenticated;`);
     assert.equal((await db.query('SELECT owner_id FROM player_holdings')).rows.length, 1);
     await db.exec(`RESET ROLE; SELECT set_config('request.jwt.claim.sub','${alice}',false); SET ROLE authenticated;`);
-    const p1 = await rpc(db, `market_price_for_slot(1, 3, 'sell')`);
-    const p2 = await rpc(db, `market_price_for_slot(1, 3, 'sell')`);
-    assert.equal(p1, p2);
+    const publicHelper = await db
+      .query(`SELECT public.market_price_for_slot(1, 3, 'sell')`)
+      .catch((err: Error) => err);
+    assert.ok(publicHelper instanceof Error);
+    assert.match(publicHelper.message, /function public\.market_price_for_slot|does not exist/i);
+    const futurePrice = await db
+      .query(`SELECT cartridge.market_price_for_slot(1, 3, 'sell')`)
+      .catch((err: Error) => err);
+    assert.ok(futurePrice instanceof Error);
+    assert.match(futurePrice.message, /permission denied/i);
+    const seedHelper = await db
+      .query(`SELECT cartridge.market_ensure_week_secret(1)`)
+      .catch((err: Error) => err);
+    assert.ok(seedHelper instanceof Error);
+    assert.match(seedHelper.message, /permission denied/i);
     const secretLeak = await db
       .query('SELECT seed FROM cartridge.market_week_secrets LIMIT 1')
       .catch((err: Error) => err);
     assert.ok(secretLeak instanceof Error);
     assert.match(secretLeak.message, /permission denied/i);
+    await db.exec('RESET ROLE');
+    const p1 = await rpc(db, `cartridge.market_price_for_slot(1, 3, 'sell')`);
+    const p2 = await rpc(db, `cartridge.market_price_for_slot(1, 3, 'sell')`);
+    assert.equal(p1, p2);
+    await db.exec(`SELECT set_config('request.jwt.claim.sub','${alice}',false); SET ROLE authenticated;`);
     await db.exec(`RESET ROLE; UPDATE public.market_runtime SET slot_index = 2 WHERE singleton;
       SELECT set_config('request.jwt.claim.sub','${alice}',false); SET ROLE authenticated;`);
     const undoBad = await rpc(db, `rpc_cartridge_undo('${(buy2 as { audit_id: string }).audit_id}')`);
