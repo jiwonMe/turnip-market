@@ -16,7 +16,7 @@ Do not publish exploitable vulnerabilities, tokens, or user data in public issue
 - Polar fulfillment requires raw-body signature verification, an operator-owned product mapping, a trusted external customer ID, and a unique order ledger entry. User-supplied metadata is not an identity fallback.
 - Checkout and customer portal sessions bind to the verified user, never to a tool-supplied user ID. Portal URLs are sensitive credentials.
 - Stripe fulfillment requires raw-body signature verification, an operator-owned price mapping, and a unique Checkout Session ledger entry.
-- Do not accept alternate token issuers, arbitrary browser origins, or unrestricted OAuth clients.
+- Do not accept alternate token issuers or arbitrary browser origins. Restrict OAuth clients with `CARTRIDGE_OAUTH_CLIENT_IDS` when you want an allowlist; if that value is empty or unset, tokens from any OAuth client are accepted (for example when dynamic registration is enabled).
 - SOP instructions guide an agent but are not an authorization mechanism.
 
 Review the README's limitations before deployment. Apply request limits, rate limits, secure static hosting headers, dependency updates, monitoring, and backup/recovery procedures appropriate to your deployment.

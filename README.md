@@ -176,11 +176,11 @@ The Management API / MCP connector cannot set function secrets or Auth settings.
 1. Edge Function secrets (no Polar/Stripe secrets needed while billing top-ups stay off):
    - `CARTRIDGE_MCP_URL=https://PROJECT_REF.supabase.co/functions/v1/mcp`
    - `CARTRIDGE_TOKEN_AUDIENCE=authenticated`
-   - `CARTRIDGE_OAUTH_CLIENT_IDS` — comma-separated allowlist of registered OAuth client IDs
+   - `CARTRIDGE_OAUTH_CLIENT_IDS` — optional comma-separated allowlist of registered OAuth client IDs. Leave empty or unset to accept tokens from any OAuth client (for example when dynamic client registration is enabled). When set, only listed client IDs are accepted.
    - `CARTRIDGE_ALLOWED_ORIGINS` — comma-separated HTTPS origins for the consent page (optional; non-browser clients without an `Origin` header are allowed)
 2. Authentication → OAuth server: enable it. `config.toml` only configures local Supabase.
 3. Host `public/oauth/consent/` (after `npm run build` with `SUPABASE_URL` and `SUPABASE_ANON_KEY`) on your HTTPS origin. Set the Auth Site URL to that origin, and the authorization / consent path to `/oauth/consent/`.
-4. Register OAuth clients with exact redirect URIs. Use authorization-code + PKCE. Dynamic client registration is disabled by default (`allow_dynamic_registration = false`).
+4. Register OAuth clients with exact redirect URIs. Use authorization-code + PKCE. Dynamic client registration is disabled by default (`allow_dynamic_registration = false`). If you enable it, leave `CARTRIDGE_OAUTH_CLIENT_IDS` empty or unset so dynamically registered clients are accepted.
 
 ## Repository layout
 

@@ -16,9 +16,10 @@ const supabaseUrl = env('SUPABASE_URL');
 const resource = env('CARTRIDGE_MCP_URL').replace(/\/$/, '');
 const metadataUrl = `${resource}/.well-known/oauth-protected-resource`;
 const allowedOrigins = (Deno.env.get('CARTRIDGE_ALLOWED_ORIGINS') ?? '').split(',').filter(Boolean);
-// Supabase commonly issues aud=authenticated. Restrict OAuth clients as well as audience.
+// Supabase commonly issues aud=authenticated. Optionally allowlist OAuth clients as well as audience.
 const audience = env('CARTRIDGE_TOKEN_AUDIENCE');
-const clientIds = env('CARTRIDGE_OAUTH_CLIENT_IDS').split(',').filter(Boolean);
+// Empty or unset accepts tokens from any OAuth client (e.g. dynamic registration).
+const clientIds = (Deno.env.get('CARTRIDGE_OAUTH_CLIENT_IDS') ?? '').split(',').filter(Boolean);
 const polarToken = Deno.env.get('POLAR_ACCESS_TOKEN');
 const polarServer = Deno.env.get('POLAR_SERVER') ?? 'production';
 if (!['production', 'sandbox'].includes(polarServer)) throw new Error('Invalid POLAR_SERVER');
@@ -64,7 +65,7 @@ Deno.serve(async (req: Request) => {
   const aud = claims?.aud;
   if (claimError || !claims || claims.iss !== `${supabaseUrl}/auth/v1` || claims.sub !== userData.user.id ||
       !(Array.isArray(aud) ? aud.includes(audience) : aud === audience) ||
-      typeof claims.client_id !== 'string' || !clientIds.includes(claims.client_id) || claims.role !== 'authenticated') return unauthorized();
+      typeof claims.client_id !== 'string' || (clientIds.length > 0 && !clientIds.includes(claims.client_id)) || claims.role !== 'authenticated') return unauthorized();
 
   const server = new McpServer({ name: manifest.name, version: manifest.version });
   server.registerResource('skill-manual', 'skill://manual', { mimeType: 'text/markdown' }, (uri: URL) => ({
