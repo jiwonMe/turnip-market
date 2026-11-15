@@ -1,0 +1,5 @@
+{
+  "trailingSlash": true,
+  "buildCommand": "npm run build",
+  "outputDirectory": "public"
+}
