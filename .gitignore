@@ -1,0 +1,11 @@
+node_modules/
+lib/
+dist/
+.env
+.env.*
+!.env.example
+supabase/.temp/
+supabase/.branches/
+supabase/functions/mcp/mcp-manifest.json
+supabase/functions/mcp/skill.json
+public/oauth/consent/config.json

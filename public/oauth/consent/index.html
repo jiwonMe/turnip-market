@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Authorize Cartridge</title>
+  <style>
+    :root { color-scheme: light dark; font: 16px system-ui; }
+    body { max-width: 34rem; margin: 10vh auto; padding: 1.5rem; }
+    input, button { font: inherit; padding: .7rem; margin: .4rem 0; }
+    label, input { display: block; } button { cursor: pointer; }
+    pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+  </style>
+</head>
+<body>
+  <h1>Authorize Cartridge</h1>
+  <p>Review the requesting application before granting access to your account.</p>
+  <p id="message" role="status"></p>
+  <form id="login" hidden>
+    <label>Email <input id="email" type="email" autocomplete="username" required></label>
+    <label>Password <input id="password" type="password" autocomplete="current-password" required></label>
+    <button>Sign in</button>
+  </form>
+  <section id="consent" hidden>
+    <pre id="details"></pre>
+    <button id="approve">Allow access</button> <button id="deny">Deny</button>
+  </section>
+  <script type="module">
+    import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.95.3';
+    const message = document.querySelector('#message');
+    const login = document.querySelector('#login');
+    const consent = document.querySelector('#consent');
+    try {
+      const config = await (await fetch('./config.json')).json();
+      if (!config.publishableKey) throw new Error('The operator must configure the public Supabase key.');
+      const db = createClient(config.supabaseUrl, config.publishableKey);
+      const id = new URL(location.href).searchParams.get('authorization_id');
+      if (!id) throw new Error('Missing authorization_id. Start from your agent’s OAuth connection.');
+      const showError = error => { message.textContent = error.message; };
+      async function load() {
+        const { data: { user } } = await db.auth.getUser();
+        login.hidden = Boolean(user);
+        if (!user) return;
+        const { data, error } = await db.auth.oauth.getAuthorizationDetails(id);
+        if (error) throw error;
+        if ('redirect_url' in data) { location.assign(data.redirect_url); return; }
+        document.querySelector('#details').textContent = JSON.stringify({ application: data.client, account: data.user.email, scopes: data.scope, redirect: data.redirect_uri }, null, 2);
+        consent.hidden = false;
+      }
+      login.onsubmit = async event => {
+        event.preventDefault(); message.textContent = '';
+        const { error } = await db.auth.signInWithPassword({ email: document.querySelector('#email').value, password: document.querySelector('#password').value });
+        document.querySelector('#password').value = '';
+        if (error) showError(error); else await load().catch(showError);
+      };
+      for (const action of ['approve', 'deny']) document.querySelector(`#${action}`).onclick = async () => {
+        consent.querySelectorAll('button').forEach(b => b.disabled = true);
+        const { error } = await db.auth.oauth[action === 'approve' ? 'approveAuthorization' : 'denyAuthorization'](id);
+        if (error) { showError(error); consent.querySelectorAll('button').forEach(b => b.disabled = false); }
+      };
+      await load();
+    } catch (error) { message.textContent = error.message; }
+  </script>
+</body>
+</html>
