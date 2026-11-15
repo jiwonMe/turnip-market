@@ -164,6 +164,24 @@ supabase functions deploy billing-webhook --no-verify-jwt
 
 Host `public/oauth/consent/` on your HTTPS origin; configure Supabase Auth Site URL and OAuth clients per Cartridge’s OAuth section. Set function secrets (`CARTRIDGE_*`, and Polar only if you enable billing). **`enable_billing_topups`** should stay false for a fair leaderboard unless you deliberately opt in.
 
+### Hosted Supabase notes
+
+These adjustments are required on hosted Supabase (they are already in the migrations):
+
+- `GRANT cartridge_executor TO postgres` must run before `ALTER FUNCTION ... OWNER TO cartridge_executor`, because the hosted `postgres` role is not a superuser.
+- `GRANT USAGE ON SCHEMA auth` to custom roles does not persist. Executor-owned RPCs call `cartridge.current_uid()` (a `SECURITY DEFINER` wrapper owned by `postgres`) instead of `auth.uid()` directly.
+
+The Management API / MCP connector cannot set function secrets or Auth settings. In the project dashboard, configure:
+
+1. Edge Function secrets (no Polar/Stripe secrets needed while billing top-ups stay off):
+   - `CARTRIDGE_MCP_URL=https://PROJECT_REF.supabase.co/functions/v1/mcp`
+   - `CARTRIDGE_TOKEN_AUDIENCE=authenticated`
+   - `CARTRIDGE_OAUTH_CLIENT_IDS` — comma-separated allowlist of registered OAuth client IDs
+   - `CARTRIDGE_ALLOWED_ORIGINS` — comma-separated HTTPS origins for the consent page (optional; non-browser clients without an `Origin` header are allowed)
+2. Authentication → OAuth server: enable it. `config.toml` only configures local Supabase.
+3. Host `public/oauth/consent/` (after `npm run build` with `SUPABASE_URL` and `SUPABASE_ANON_KEY`) on your HTTPS origin. Set the Auth Site URL to that origin, and the authorization / consent path to `/oauth/consent/`.
+4. Register OAuth clients with exact redirect URIs. Use authorization-code + PKCE. Dynamic client registration is disabled by default (`allow_dynamic_registration = false`).
+
 ## Repository layout
 
 ```text

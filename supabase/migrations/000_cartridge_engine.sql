@@ -1,8 +1,13 @@
 -- Private engine. Never expose the cartridge schema through PostgREST.
 CREATE SCHEMA cartridge;
 CREATE ROLE cartridge_executor NOLOGIN NOINHERIT;
+-- Hosted Supabase: the postgres role is not a superuser, so it must be a
+-- member of cartridge_executor before ALTER FUNCTION ... OWNER TO that role.
+GRANT cartridge_executor TO postgres;
 GRANT USAGE ON SCHEMA public, auth, cartridge TO cartridge_executor;
 GRANT EXECUTE ON FUNCTION auth.uid() TO cartridge_executor;
+-- Hosted Supabase does not persist USAGE on the auth schema for custom roles,
+-- so executor-owned RPCs must call cartridge.current_uid() instead of auth.uid().
 
 CREATE TABLE cartridge.entitlements (
   user_id uuid PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
@@ -88,6 +93,15 @@ LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
    ELSE NULL END
  FROM cartridge.settings WHERE singleton;
 $$;
+
+-- Wrapper so cartridge_executor can read auth.uid() without schema USAGE on auth.
+CREATE FUNCTION cartridge.current_uid() RETURNS uuid
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = '' AS $$
+  SELECT auth.uid();
+$$;
+REVOKE ALL ON FUNCTION cartridge.current_uid() FROM PUBLIC, anon, authenticated;
+GRANT EXECUTE ON FUNCTION cartridge.current_uid() TO cartridge_executor;
+
 CREATE FUNCTION cartridge.commit_and_charge(
   p_intent_name text, p_target_table text, p_target_id text,
   p_before jsonb, p_after jsonb, p_cost integer DEFAULT 0,

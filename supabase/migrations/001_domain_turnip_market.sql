@@ -115,7 +115,8 @@ REVOKE ALL ON FUNCTION public.market_price_for_slot(integer, integer, text) FROM
 GRANT EXECUTE ON FUNCTION public.market_price_for_slot(integer, integer, text) TO authenticated;
 GRANT EXECUTE ON FUNCTION public.market_price_for_slot(integer, integer, text) TO cartridge_executor;
 
-CREATE OR REPLACE VIEW public.v_player_portfolio AS
+CREATE OR REPLACE VIEW public.v_player_portfolio
+WITH (security_invoker = true) AS
 SELECT
   h.owner_id,
   h.bell_balance,
@@ -138,22 +139,27 @@ SELECT
 FROM public.player_holdings h
 CROSS JOIN public.market_runtime r;
 
+-- SECURITY DEFINER is intentional: the leaderboard is a public ranking and must
+-- see every player's mark-to-market net worth. Do not route this through
+-- v_player_portfolio (security_invoker), or RLS would hide other players.
 CREATE OR REPLACE VIEW public.v_leaderboard AS
 SELECT
-  p.owner_id,
-  p.bell_balance
-    + CASE WHEN p.holding_status IN ('can_sell', 'buy_window') AND p.turnip_qty > 0
-      THEN public.market_price_for_slot(r.week_number, r.slot_index, 'sell') * p.turnip_qty
+  h.owner_id,
+  h.bell_balance
+    + CASE WHEN coalesce(h.turnip_qty, 0) > 0
+            AND h.turnip_week IS NOT DISTINCT FROM r.week_number
+      THEN public.market_price_for_slot(r.week_number, r.slot_index, 'sell') * h.turnip_qty
       ELSE 0 END AS net_worth_bells,
-  p.turnip_qty,
-  p.bell_balance,
+  h.turnip_qty,
+  h.bell_balance,
   rank() OVER (ORDER BY (
-    p.bell_balance
-      + CASE WHEN p.holding_status IN ('can_sell', 'buy_window') AND p.turnip_qty > 0
-        THEN public.market_price_for_slot(r.week_number, r.slot_index, 'sell') * p.turnip_qty
+    h.bell_balance
+      + CASE WHEN coalesce(h.turnip_qty, 0) > 0
+              AND h.turnip_week IS NOT DISTINCT FROM r.week_number
+        THEN public.market_price_for_slot(r.week_number, r.slot_index, 'sell') * h.turnip_qty
         ELSE 0 END
   ) DESC) AS rank
-FROM public.v_player_portfolio p
+FROM public.player_holdings h
 CROSS JOIN public.market_runtime r;
 
 REVOKE ALL ON public.v_player_portfolio, public.v_leaderboard FROM PUBLIC, anon;
@@ -216,7 +222,7 @@ DECLARE r public.market_runtime; cfg public.market_config; buy_p integer; sell_p
   wait_sec integer; market_phase text; history jsonb;
   s text; m text; d text; h text;
 BEGIN
-  PERFORM cartridge.assert(auth.uid() IS NOT NULL, 'UNAUTHENTICATED', 'Authentication required.', 'Complete OAuth sign-in.');
+  PERFORM cartridge.assert(cartridge.current_uid() IS NOT NULL, 'UNAUTHENTICATED', 'Authentication required.', 'Complete OAuth sign-in.');
   PERFORM cartridge.market_advance_clock();
   SELECT * INTO r FROM public.market_runtime WHERE singleton;
   SELECT * INTO cfg FROM public.market_config WHERE singleton;
@@ -244,7 +250,7 @@ $$;
 
 CREATE FUNCTION public.rpc_buy_turnips(p_qty integer) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-DECLARE r public.market_runtime; u uuid := auth.uid();
+DECLARE r public.market_runtime; u uuid := cartridge.current_uid();
   b public.player_holdings; a public.player_holdings; e_before integer; e_after integer;
   unit integer; total integer; ctx jsonb;
   s text; m text; d text; h text;
@@ -286,7 +292,7 @@ $$;
 
 CREATE FUNCTION public.rpc_sell_turnips(p_qty integer) RETURNS jsonb
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
-DECLARE r public.market_runtime; u uuid := auth.uid();
+DECLARE r public.market_runtime; u uuid := cartridge.current_uid();
   b public.player_holdings; a public.player_holdings; e_before integer; e_after integer;
   unit integer; total integer; ctx jsonb;
   s text; m text; d text; h text;
